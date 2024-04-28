@@ -1,0 +1,177 @@
+## Home Automation project
+
+#!/usr/bin/python
+import RPi.GPIO as GPIO 
+GPIO.setmode(GPIO.BOARD) 
+GPIO.setup(13,GPIO.IN) 
+# Light is connected to pin 16 and at pin 13 switch1 is connected
+GPIO.setup(15,GPIO.IN) #Fan is connected to pin 18 and at pin 15 switch2 is connected 
+GPIO.setup(16,GPIO.OUT) 
+GPIO.setup(18,GPIO.OUT) 
+GPIO.output(16,True) 
+GPIO.output(18,True)
+GPIO.setwarnings(False)
+import threading 
+import time 
+import logging 
+import dropbox
+from tweepy import Stream 
+from tweepy import OAuthHandler 
+from tweepy.streaming import StreamListener 
+import tweepy 
+import sys 
+
+class myThread_log (threading.Thread):
+	def __init__(self, threadID, name, counter):
+        	threading.Thread.__init__(self)
+        	self.threadID = threadID
+        	self.name = name
+        	self.counter = counter
+    	def run(self):
+        	print "Starting " + self.name
+        # Get lock to synchronize threads
+        	threadLock.acquire()
+        	logg(self.name, self.counter, 1)
+        # Free lock to release next thread
+        	threadLock.release() 
+
+def logg(threadName, delay, counter):
+    	while counter:
+        	print('logging status')
+        	time.sleep(delay)
+        	logging.basicConfig(filename='demo_logfile.txt',level=logging.INFO,format='%(asctime)s - %(levelname)s - %(message)s') #setting for logger; $
+        	logger = logging.getLogger()
+        	x=GPIO.input(13)
+#	x=1
+        	if x==True:
+			logging.info('Light is off')
+        	else:
+        		logging.info('Light is on')
+        	y=GPIO.input(15)
+#	y=1
+        	if y==True:
+                	logging.info('Fan is off')
+        	else:
+                	logging.info('Fan is on')
+        	counter -= 1 
+
+class myThread_tweet (threading.Thread):
+	def __init__(self, threadID, name, counter):
+        	threading.Thread.__init__(self)
+        	self.threadID = threadID
+        	self.name = name
+        	self.counter = counter
+    	def run(self):
+        	print "Starting " + self.name
+        # Get lock to synchronize threads
+        	threadLock.acquire()
+        	search_tweet(self.name, self.counter, 1)
+        # Free lock to release next thread
+        	threadLock.release() 
+
+def search_tweet(threadName, delay, counter):
+	while counter:
+        	time.sleep(delay)
+        	print "Searching in twitter"
+        	ckey = "xxxxxxxxxxxxxxxxxxx"
+        	csecret = "xxxxxxxxxxxxxxxxxxxxxxxxxx"
+       		atoken = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        	asecret = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        	auth = tweepy.OAuthHandler(ckey, csecret)
+        	auth.set_access_token(atoken, asecret)
+        	api = tweepy.API(auth)
+#	print "entering light"
+        	for tweet in tweepy.Cursor(api.search,q="14826-light status").items(1):
+               		response=tweet.text
+               		print response
+			x=GPIO.input(13)
+                	if x==False:
+                       		api.update_status('Light is on',tweet.id)
+				api.destroy_status(tweet.id) #distroy last tweet else it will give error
+				logging.info('Light is on')
+                	else:
+                       		api.update_status('Light is off',tweet.id)
+				api.destroy_status(tweet.id)
+				logging.info('Light is off')
+		for tweet in tweepy.Cursor(api.search,q="14826-fan status").items(1):
+                	y=GPIO.input(15)
+                	if y==False:
+                        	api.update_status('Fan is on',tweet.id)
+				api.destroy_status(tweet.id)
+				logging.info('Fan is on')
+                	else:
+                        	api.update_status('Fan is off',tweet.id)
+				logging.info('Fan is off')
+				api.destroy_status(tweet.id)
+		for tweet in tweepy.Cursor(api.search,q="14826-Light OFF").items(1):
+			a=GPIO.input(13)
+#                a=1
+                	if a==False:
+                        	GPIO.output(16,False)
+				api.update_status('Light is made off by user',tweet.id)
+				logging.info('Light is made off by user')
+				api.destroy_status(tweet.id)
+                	else:
+                        	api.update_status('Light is already off',tweet.id)
+				logging.info('Light is already off')
+				api.destroy_status(tweet.id)
+        	for tweet in tweepy.Cursor(api.search,q="14826-fan OFF").items(1):
+               		b=GPIO.input(15)
+               		if b==False:
+                        	GPIO.output(18,False)
+				api.update_status('Fan is made off by user',tweet.id)
+				logging.info('Fan is made off by user')
+				api.destroy_status(tweet.id)
+               		else:
+                        	api.update_status('Fan is already off',tweet.id)
+				logging.info('Fan is already off')
+				api.destroy_status(tweet.id)
+		counter -= 1 
+
+class myThread_upload (threading.Thread):
+	def __init__(self, threadID, name, counter):
+        	threading.Thread.__init__(self)
+        	self.threadID = threadID
+        	self.name = name
+        	self.counter = counter
+	def run(self):
+		print "Starting " + self.name
+        # Get lock to synchronize threads
+        	threadLock.acquire()
+        	upload_dropbox(self.name, self.counter, 1)
+        # Free lock to release next thread
+        	threadLock.release() 
+
+def upload_dropbox(threadName, delay, counter):
+	while counter:
+		print 'uploading log to dropbox'
+        	dbx = dropbox.Dropbox('xxxxxxxxxxxxxxxxxxxxxx') # paste here your generated token
+		f = open('/home/pi/Desktop/vodafone/demo_logfile.txt', 'rb')
+		data=f.read()
+		dbx.files_upload(data,'/iotlogger/demo_logfile.txt', mode=dropbox.files.WriteMode.overwrite)
+		counter -=1 
+	
+threadLock = threading.Lock() 
+threads = [] 
+
+try:
+	while True:
+# Create new threads
+		thread1 = myThread_log(1, "log", 1)
+		thread2 = myThread_tweet(2, "access_twitter", 2)
+		thread3 = myThread_upload(3, "upload_log", 3)
+# Start new Threads
+		thread1.start()
+		thread2.start()
+		thread3.start()
+# Add threads to thread list
+		threads.append(thread1)
+		threads.append(thread2)
+		threads.append(thread3)
+# Wait for all threads to complete
+		for t in threads:
+                	t.join()
+		print "Exiting Main Thread" 
+except KeyboardInterrupt:
+	print ('Stopped from user')
+	sys.exit(0)
